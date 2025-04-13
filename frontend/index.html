@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>E-Mall Property Management</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="container">
+    <aside class="sidebar">
+      <h2>E-Mall</h2>
+      <ul>
+        <li onclick="showPage('dashboard')">Dashboard</li>
+        <li onclick="showPage('shops')">Shops</li>
+        <li onclick="showPage('tenants')">Tenants</li>
+        <li onclick="showPage('leases')">Leases</li>
+        <li onclick="showPage('maintenance')">Maintenance</li>
+      </ul>
+    </aside>
+
+    <main class="main-content">
+      <!-- DASHBOARD -->
+      <section id="dashboard" class="page active">
+        <h1>Dashboard</h1>
+        <div class="cards">
+          <div class="card">Total Shops: 20</div>
+          <div class="card">Occupied: 14</div>
+          <div class="card">Tenants: 12</div>
+          <div class="card">Pending Maintenance: 3</div>
+        </div>
+      </section>
+
+      <!-- SHOPS -->
+      <section id="shops" class="page">
+        <h1>Shops</h1>
+        <table>
+          <tr><th>ID</th><th>Name</th><th>Status</th><th>Actions</th></tr>
+          <tr><td>101</td><td>Clothing Store</td><td>Occupied</td><td><button>Edit</button></td></tr>
+          <tr><td>102</td><td>Electronics</td><td>Vacant</td><td><button>Edit</button></td></tr>
+        </table>
+      </section>
+
+      <!-- TENANTS -->
+      <section id="tenants" class="page">
+        <h1>Tenants</h1>
+        <table>
+          <tr><th>Name</th><th>Shop</th><th>Contact</th></tr>
+          <tr><td>John Doe</td><td>Clothing Store</td><td>9876543210</td></tr>
+        </table>
+      </section>
+
+      <!-- LEASES -->
+      <section id="leases" class="page">
+        <h1>Leases</h1>
+        <table>
+          <tr><th>Tenant</th><th>Shop</th><th>Start</th><th>End</th></tr>
+          <tr><td>John Doe</td><td>101</td><td>2023-01-01</td><td>2024-01-01</td></tr>
+        </table>
+      </section>
+
+      <!-- MAINTENANCE -->
+      <section id="maintenance" class="page">
+        <h1>Maintenance Requests</h1>
+        <ul>
+          <li>Leaky pipe in Shop 103 - <strong>Pending</strong></li>
+          <li>AC not working in Shop 105 - <strong>In Progress</strong></li>
+        </ul>
+      </section>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
