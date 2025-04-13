@@ -26,50 +26,60 @@
       <!-- DASHBOARD -->
       <section id="dashboard" class="page active">
         <div class="page-header">
-          <h1>Dashboard</h1>
-          <button class="refresh-btn" onclick="loadDashboardData()">Refresh</button>
+          <h1>E-Mall Dashboard</h1>
         </div>
-        <div class="cards">
-          <div class="card">
-            <div class="card-icon">🏢</div>
-            <div class="card-content">
-              <h3>Total Shops</h3>
-              <p id="total-shops">Loading...</p>
-            </div>
+        
+        <div class="stats-container">
+          <div class="stat-card">
+            <h3>Total Shops</h3>
+            <div class="stat-value" id="total-shops">Loading...</div>
           </div>
-          <div class="card">
-            <div class="card-icon">🔑</div>
-            <div class="card-content">
-              <h3>Occupied</h3>
-              <p id="occupied-shops">Loading...</p>
-            </div>
+          
+          <div class="stat-card">
+            <h3>Occupied Shops</h3>
+            <div class="stat-value" id="occupied-shops">Loading...</div>
           </div>
-          <div class="card">
-            <div class="card-icon">👥</div>
-            <div class="card-content">
-              <h3>Tenants</h3>
-              <p id="total-tenants">Loading...</p>
-            </div>
+          
+          <div class="stat-card">
+            <h3>Total Tenants</h3>
+            <div class="stat-value" id="total-tenants">Loading...</div>
           </div>
-          <div class="card">
-            <div class="card-icon">🔧</div>
-            <div class="card-content">
-              <h3>Pending Maintenance</h3>
-              <p id="pending-maintenance">Loading...</p>
-            </div>
+          
+          <div class="stat-card">
+            <h3>Pending Maintenance</h3>
+            <div class="stat-value" id="pending-maintenance">Loading...</div>
           </div>
         </div>
-
-        <div class="dashboard-sections">
+        
+        <div class="tenant-stats-container">
+          <div class="stat-card wide">
+            <h3>Tenant-Lease Coverage</h3>
+            <div class="tenant-lease-stats">
+              <div class="progress-container">
+                <div class="progress-bar" id="lease-coverage-bar"></div>
+              </div>
+              <div class="progress-info">
+                <span id="lease-coverage-percent">0%</span> of tenants have active leases
+              </div>
+              <div class="progress-details">
+                <div><span id="tenants-with-leases">0</span> tenants with leases</div>
+                <div><span id="tenants-without-leases">0</span> tenants without leases</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="recent-data">
           <div class="recent-section">
-            <h2>Recent Leases</h2>
-            <div id="recent-leases" class="recent-items">
+            <h3>Recent Leases</h3>
+            <div class="recent-items" id="recent-leases">
               <p>Loading lease data...</p>
             </div>
           </div>
+          
           <div class="recent-section">
-            <h2>Maintenance Alerts</h2>
-            <div id="maintenance-alerts" class="recent-items">
+            <h3>Maintenance Alerts</h3>
+            <div class="recent-items" id="maintenance-alerts">
               <p>Loading maintenance data...</p>
             </div>
           </div>
@@ -110,13 +120,16 @@
       <!-- TENANTS -->
       <section id="tenants" class="page">
         <div class="page-header">
-          <h1>Tenants</h1>
-          <div class="header-actions">
-            <button class="add-btn" onclick="showAddTenantForm()">Add Tenant</button>
-            <button class="refresh-btn" onclick="loadTenantsData()">Refresh</button>
+          <h1>Tenants Management</h1>
+          <div class="actions">
+            <button onclick="showAddTenantForm()">Add Tenant</button>
           </div>
         </div>
-        <div class="table-container">
+        <div class="tenant-info-banner">
+          <p>All tenants must have an active lease. Editing a tenant will also update their lease information. Deleting a lease will also delete the associated tenant. Tenants with active leases cannot be directly deleted.</p>
+        </div>
+        
+        <div class="data-container">
           <table>
             <thead>
               <tr>
@@ -130,9 +143,7 @@
               </tr>
             </thead>
             <tbody id="tenants-table-body">
-              <tr>
-                <td colspan="7">Loading tenant data...</td>
-              </tr>
+              <!-- Tenant data will be loaded here -->
             </tbody>
           </table>
         </div>
@@ -141,13 +152,13 @@
       <!-- LEASES -->
       <section id="leases" class="page">
         <div class="page-header">
-          <h1>Leases</h1>
-          <div class="header-actions">
-            <button class="add-btn" onclick="showAddLeaseForm()">Add Lease</button>
-            <button class="refresh-btn" onclick="loadLeasesData()">Refresh</button>
+          <h1>Lease Management</h1>
+          <div class="actions">
+            <button onclick="showAddLeaseForm()">Add Lease</button>
           </div>
         </div>
-        <div class="table-container">
+        
+        <div class="data-container">
           <table>
             <thead>
               <tr>
@@ -162,9 +173,7 @@
               </tr>
             </thead>
             <tbody id="leases-table-body">
-              <tr>
-                <td colspan="8">Loading lease data...</td>
-              </tr>
+              <!-- Lease data will be loaded here -->
             </tbody>
           </table>
         </div>
@@ -179,8 +188,26 @@
             <button class="refresh-btn" onclick="loadMaintenanceData()">Refresh</button>
           </div>
         </div>
-        <div class="maintenance-list" id="maintenance-list">
-          <p>Loading maintenance data...</p>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Shop</th>
+                <th>Description</th>
+                <th>Priority</th>
+                <th>Status</th>
+                <th>Reported Date</th>
+                <th>Resolved Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="maintenance-table-body">
+              <tr>
+                <td colspan="8">Loading maintenance data...</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
     </main>
@@ -291,63 +318,97 @@
     </div>
   </div>
 
-  <!-- Tenant Edit Modal -->
+  <!-- Tenant Modal -->
   <div id="tenant-modal" class="modal">
     <div class="modal-content">
-      <span class="close-btn" onclick="closeTenantModal()">&times;</span>
-      <h2 id="tenant-modal-title">Edit Tenant</h2>
-      <form id="tenant-form" onsubmit="saveTenant(event)">
-        <input type="hidden" id="tenant-id">
-        
-        <div class="form-group">
-          <label for="tenant-modal-name">Tenant Name*</label>
-          <input type="text" id="tenant-modal-name" required>
-        </div>
-        
-        <div class="form-group">
-          <label for="tenant-modal-contact">Contact Number</label>
-          <input type="text" id="tenant-modal-contact">
-        </div>
-        
-        <div class="form-group">
-          <label for="tenant-modal-email">Email</label>
-          <input type="email" id="tenant-modal-email">
-        </div>
-        
-        <div class="form-group">
-          <label for="tenant-modal-business">Business Type</label>
-          <input type="text" id="tenant-modal-business">
-        </div>
-        
-        <div class="form-group">
-          <label for="tenant-modal-shop">Shop Assignment</label>
-          <select id="tenant-modal-shop"></select>
-        </div>
-        
-        <div class="form-actions">
-          <button type="button" class="cancel-btn" onclick="closeTenantModal()">Cancel</button>
-          <button type="submit" class="save-btn">Save Changes</button>
-        </div>
-      </form>
+      <div class="modal-header">
+        <h3 id="tenant-modal-title">Add New Tenant</h3>
+        <span class="close" onclick="closeTenantModal()">&times;</span>
+      </div>
+      <div class="modal-body">
+        <form id="tenant-form" onsubmit="event.preventDefault(); saveTenant();">
+          <input type="hidden" id="tenant-id">
+          
+          <div class="form-group">
+            <label for="tenant-modal-name">Name *</label>
+            <input type="text" id="tenant-modal-name" placeholder="Enter tenant name" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="tenant-modal-contact">Contact Number</label>
+            <input type="text" id="tenant-modal-contact" placeholder="Enter contact number">
+          </div>
+          
+          <div class="form-group">
+            <label for="tenant-modal-email">Email</label>
+            <input type="email" id="tenant-modal-email" placeholder="Enter email address">
+          </div>
+          
+          <div class="form-group">
+            <label for="tenant-modal-business">Business Type</label>
+            <input type="text" id="tenant-modal-business" placeholder="Enter business type">
+          </div>
+          
+          <div class="form-group">
+            <label for="tenant-modal-shop">Shop *</label>
+            <select id="tenant-modal-shop" required></select>
+          </div>
+          
+          <!-- Add the simple form checkbox -->
+          <div class="form-group form-check">
+            <input type="checkbox" id="simple-lease-checkbox" checked>
+            <label for="simple-lease-checkbox">Create with default 1-year lease (using shop's rent amount)</label>
+          </div>
+          
+          <!-- Lease information section -->
+          <div id="lease-info-section" class="lease-info-section">
+            <h4>Lease Information</h4>
+            
+            <div class="form-group">
+              <label for="lease-start-date">Start Date *</label>
+              <input type="date" id="lease-start-date">
+            </div>
+            
+            <div class="form-group">
+              <label for="lease-end-date">End Date *</label>
+              <input type="date" id="lease-end-date">
+            </div>
+            
+            <div class="form-group">
+              <label for="lease-rent-amount">Rent Amount *</label>
+              <input type="number" id="lease-rent-amount" step="0.01" min="0">
+            </div>
+          </div>
+          
+          <div class="form-actions">
+            <button type="submit" class="save-btn">Save Tenant</button>
+            <button type="button" class="cancel-btn" onclick="closeTenantModal()">Cancel</button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
   
-  <!-- Lease Edit Modal -->
+  <!-- Lease Modal -->
   <div id="lease-modal" class="modal">
     <div class="modal-content">
       <span class="close-btn" onclick="closeLeaseModal()">&times;</span>
-      <h2 id="lease-modal-title">Edit Lease</h2>
+      <h2 id="lease-modal-title">Add New Lease</h2>
       <form id="lease-form" onsubmit="saveLease(event)">
         <input type="hidden" id="lease-id">
         
         <div class="form-group">
           <label for="lease-modal-tenant">Tenant*</label>
-          <select id="lease-modal-tenant" required></select>
+          <select id="lease-modal-tenant" required>
+            <!-- Tenant options will be populated dynamically -->
+          </select>
         </div>
         
         <div class="form-group">
           <label for="lease-modal-shop">Shop*</label>
-          <select id="lease-modal-shop" required></select>
+          <select id="lease-modal-shop" required>
+            <!-- Shop options will be populated dynamically -->
+          </select>
         </div>
         
         <div class="form-group">
@@ -361,8 +422,8 @@
         </div>
         
         <div class="form-group">
-          <label for="lease-modal-rent">Rent Amount*</label>
-          <input type="number" id="lease-modal-rent" step="0.01" min="0" required>
+          <label for="lease-modal-rent">Monthly Rent* ($)</label>
+          <input type="number" id="lease-modal-rent" min="0" step="0.01" required>
         </div>
         
         <div class="form-group">
@@ -376,71 +437,67 @@
         
         <div class="form-actions">
           <button type="button" class="cancel-btn" onclick="closeLeaseModal()">Cancel</button>
-          <button type="submit" class="save-btn">Save Changes</button>
+          <button type="submit" class="save-btn">Save Lease</button>
         </div>
       </form>
     </div>
   </div>
   
-  <!-- Maintenance Edit Modal -->
+  <!-- Maintenance Modal -->
   <div id="maintenance-modal" class="modal">
     <div class="modal-content">
       <span class="close-btn" onclick="closeMaintenanceModal()">&times;</span>
-      <h2 id="maintenance-modal-title">Edit Maintenance Request</h2>
+      <h2 id="maintenance-modal-title">Create Maintenance Request</h2>
       <form id="maintenance-form" onsubmit="saveMaintenance(event)">
         <input type="hidden" id="maintenance-id">
         
         <div class="form-group">
-          <label for="maintenance-modal-shop">Shop*</label>
-          <select id="maintenance-modal-shop" required></select>
-        </div>
-        
-        <div class="form-group">
-          <label for="maintenance-modal-description">Description*</label>
-          <textarea id="maintenance-modal-description" rows="3" required></textarea>
-        </div>
-        
-        <div class="form-group">
-          <label for="maintenance-modal-priority">Priority</label>
-          <select id="maintenance-modal-priority">
-            <option value="Low">Low</option>
-            <option value="Medium">Medium</option>
-            <option value="High">High</option>
+          <label for="maintenance-shop">Shop:</label>
+          <select id="maintenance-shop" required>
+            <option value="">Select Shop</option>
           </select>
         </div>
         
         <div class="form-group">
-          <label for="maintenance-modal-status">Status</label>
-          <select id="maintenance-modal-status" onchange="handleMaintenanceStatusChange()">
+          <label for="maintenance-description">Description:</label>
+          <textarea id="maintenance-description" rows="4" required></textarea>
+        </div>
+        
+        <div class="form-group">
+          <label for="maintenance-priority">Priority:</label>
+          <select id="maintenance-priority" required>
+            <option value="Low">Low</option>
+            <option value="Medium">Medium</option>
+            <option value="High">High</option>
+            <option value="Critical">Critical</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label for="maintenance-status">Status:</label>
+          <select id="maintenance-status">
             <option value="Pending">Pending</option>
             <option value="In Progress">In Progress</option>
             <option value="Completed">Completed</option>
           </select>
         </div>
         
-        <div id="resolution-section" style="display: none; border-top: 1px solid #eee; margin-top: 15px; padding-top: 15px;">
-          <h3>Resolution Details</h3>
-          
-          <div class="form-group">
-            <label for="maintenance-modal-resolved-date">Resolved Date</label>
-            <input type="date" id="maintenance-modal-resolved-date">
-          </div>
-          
-          <div class="form-group">
-            <label for="maintenance-modal-resolution-notes">Resolution Notes</label>
-            <textarea id="maintenance-modal-resolution-notes" rows="3"></textarea>
-          </div>
+        <div class="form-group" id="resolved-date-group" style="display: none;">
+          <label for="maintenance-resolved-date">Resolved Date:</label>
+          <input type="date" id="maintenance-resolved-date">
         </div>
         
         <div class="form-actions">
-          <button type="button" class="cancel-btn" onclick="closeMaintenanceModal()">Cancel</button>
-          <button type="submit" class="save-btn">Save Changes</button>
+          <button type="submit">Save</button>
+          <button type="button" onclick="closeMaintenanceModal()">Cancel</button>
         </div>
       </form>
     </div>
   </div>
 
   <div id="toast" class="toast"></div>
+  <div id="notification" class="notification"></div>
+  <div id="loader" class="loader" style="display: none;"><div class="spinner"></div></div>
 
   <script src="script.js"></script>
 </body>

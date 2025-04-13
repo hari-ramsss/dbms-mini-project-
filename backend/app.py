@@ -17,18 +17,6 @@ def init_db():
     conn = get_db()
     cursor = conn.cursor()
     
-    # Check if maintenance table needs to be updated
-    cursor.execute('PRAGMA table_info(maintenance)')
-    columns = cursor.fetchall()
-    column_names = [column['name'] for column in columns]
-    
-    # If resolved_date and resolution_notes are missing, alter the table
-    if 'resolved_date' not in column_names:
-        cursor.execute('ALTER TABLE maintenance ADD COLUMN resolved_date TEXT')
-    
-    if 'resolution_notes' not in column_names:
-        cursor.execute('ALTER TABLE maintenance ADD COLUMN resolution_notes TEXT')
-    
     # Create tables
     cursor.executescript('''
     CREATE TABLE IF NOT EXISTS shop (
@@ -484,42 +472,54 @@ def delete_shop(shop_id):
         conn.close()
         return jsonify({'error': 'Shop not found'}), 404
     
-    # Get the tenant IDs associated with this shop
-    cursor.execute('SELECT id FROM tenant WHERE shop_id = ?', (shop_id,))
-    tenant_ids = [tenant['id'] for tenant in cursor.fetchall()]
+    # Option to cascade delete all associated records
+    cascade = request.args.get('cascade', 'false').lower() == 'true'
     
-    # Check if any tenant has other active leases
-    for tenant_id in tenant_ids:
-        cursor.execute('''
-        SELECT COUNT(*) FROM lease 
-        WHERE tenant_id = ? AND shop_id != ? AND status = 'Active'
-        ''', (tenant_id, shop_id))
+    if cascade:
+        # Delete all associated maintenance requests
+        cursor.execute('DELETE FROM maintenance WHERE shop_id = ?', (shop_id,))
         
-        if cursor.fetchone()[0] > 0:
+        # Find all tenants occupying this shop
+        cursor.execute('SELECT id FROM tenant WHERE shop_id = ?', (shop_id,))
+        tenant_ids = [tenant['id'] for tenant in cursor.fetchall()]
+        
+        # Delete all leases associated with this shop
+        cursor.execute('DELETE FROM lease WHERE shop_id = ?', (shop_id,))
+        
+        # Update tenants to no longer be associated with this shop
+        cursor.execute('UPDATE tenant SET shop_id = NULL WHERE shop_id = ?', (shop_id,))
+        
+        # Delete the shop
+        cursor.execute('DELETE FROM shop WHERE id = ?', (shop_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Shop and all associated records deleted successfully'})
+    else:
+        # Check if shop has related records
+        cursor.execute('SELECT id FROM tenant WHERE shop_id = ? LIMIT 1', (shop_id,))
+        if cursor.fetchone():
             conn.close()
-            return jsonify({'error': 'Cannot delete shop. Tenant has active leases with other shops.'}), 400
-    
-    # Get all related maintenance requests
-    cursor.execute('SELECT id FROM maintenance WHERE shop_id = ?', (shop_id,))
-    maintenance_ids = [req['id'] for req in cursor.fetchall()]
-    
-    # Delete maintenance requests
-    if maintenance_ids:
-        cursor.executemany('DELETE FROM maintenance WHERE id = ?', [(id,) for id in maintenance_ids])
-    
-    # Delete related leases
-    cursor.execute('DELETE FROM lease WHERE shop_id = ?', (shop_id,))
-    
-    # Update tenants to remove shop assignment
-    cursor.execute('UPDATE tenant SET shop_id = NULL WHERE shop_id = ?', (shop_id,))
-    
-    # Delete shop
-    cursor.execute('DELETE FROM shop WHERE id = ?', (shop_id,))
-    
-    conn.commit()
-    conn.close()
-    
-    return jsonify({'message': 'Shop and all related records deleted successfully'})
+            return jsonify({'error': 'Cannot delete shop with related tenants. Remove tenants first or use cascade delete option.'}), 400
+        
+        cursor.execute('SELECT id FROM lease WHERE shop_id = ? LIMIT 1', (shop_id,))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'error': 'Cannot delete shop with related leases. Remove leases first or use cascade delete option.'}), 400
+        
+        cursor.execute('SELECT id FROM maintenance WHERE shop_id = ? LIMIT 1', (shop_id,))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'error': 'Cannot delete shop with related maintenance requests. Remove maintenance requests first or use cascade delete option.'}), 400
+        
+        # Delete shop
+        cursor.execute('DELETE FROM shop WHERE id = ?', (shop_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Shop deleted successfully'})
 
 @app.route('/api/tenants', methods=['GET'])
 def get_tenants():
@@ -569,20 +569,12 @@ def create_tenant():
     conn = get_db()
     cursor = conn.cursor()
     
-    # If shop_id is provided, check if it exists and is not already occupied
+    # If shop_id is provided, verify shop exists
     if shop_id:
-        cursor.execute('SELECT id, status FROM shop WHERE id = ?', (shop_id,))
-        shop = cursor.fetchone()
-        if not shop:
+        cursor.execute('SELECT id FROM shop WHERE id = ?', (shop_id,))
+        if not cursor.fetchone():
             conn.close()
             return jsonify({'error': 'Shop not found'}), 404
-        
-        # Check if shop is already occupied by another tenant
-        cursor.execute('SELECT id FROM tenant WHERE shop_id = ?', (shop_id,))
-        existing_tenant = cursor.fetchone()
-        if existing_tenant:
-            conn.close()
-            return jsonify({'error': 'Shop is already assigned to another tenant'}), 400
     
     # Insert new tenant
     cursor.execute('''
@@ -592,7 +584,12 @@ def create_tenant():
     
     tenant_id = cursor.lastrowid
     
-    # Shop status will be updated by the trigger
+    # If shop_id is provided and valid, update shop status to 'Occupied'
+    if shop_id:
+        cursor.execute('SELECT status FROM shop WHERE id = ?', (shop_id,))
+        shop = cursor.fetchone()
+        if shop and shop['status'] != 'Occupied':
+            cursor.execute('UPDATE shop SET status = ? WHERE id = ?', ('Occupied', shop_id))
     
     conn.commit()
     conn.close()
@@ -619,6 +616,16 @@ def get_tenant(tenant_id):
         conn.close()
         return jsonify({'error': 'Tenant not found'}), 404
     
+    # Get active leases for this tenant
+    cursor.execute('''
+    SELECT l.id, l.shop_id, s.name as shop_name, l.start_date, l.end_date, l.rent_amount
+    FROM lease l
+    JOIN shop s ON l.shop_id = s.id
+    WHERE l.tenant_id = ? AND l.status = 'Active'
+    ''', (tenant_id,))
+    
+    leases = cursor.fetchall()
+    
     conn.close()
     
     return jsonify({
@@ -628,7 +635,15 @@ def get_tenant(tenant_id):
         'email': tenant['email'],
         'business_type': tenant['business_type'],
         'shop_id': tenant['shop_id'],
-        'shop_name': tenant['shop_name']
+        'shop_name': tenant['shop_name'],
+        'active_leases': [{
+            'id': lease['id'],
+            'shop_id': lease['shop_id'],
+            'shop_name': lease['shop_name'],
+            'start_date': lease['start_date'],
+            'end_date': lease['end_date'],
+            'rent_amount': lease['rent_amount']
+        } for lease in leases]
     })
 
 @app.route('/api/tenants/<int:tenant_id>', methods=['PUT'])
@@ -699,39 +714,34 @@ def delete_tenant(tenant_id):
         conn.close()
         return jsonify({'error': 'Tenant not found'}), 404
     
-    # Get all leases for this tenant
-    cursor.execute('SELECT id, shop_id, status FROM lease WHERE tenant_id = ?', (tenant_id,))
-    leases = cursor.fetchall()
+    # Option to cascade delete associated leases
+    cascade = request.args.get('cascade', 'false').lower() == 'true'
     
-    # Delete all leases for this tenant
-    if leases:
-        # Check for active leases and handle related shop status changes
-        for lease in leases:
-            if lease['status'] == 'Active':
-                shop_id = lease['shop_id']
-                
-                # Check if other tenants are using this shop
-                cursor.execute('''
-                SELECT COUNT(*) FROM tenant 
-                WHERE shop_id = ? AND id != ?
-                ''', (shop_id, tenant_id))
-                
-                other_tenants = cursor.fetchone()[0]
-                
-                # If no other tenants are using this shop, set it to vacant
-                if other_tenants == 0:
-                    cursor.execute('UPDATE shop SET status = ? WHERE id = ?', ('Vacant', shop_id))
-        
-        # Delete the leases
+    if cascade:
+        # Delete associated leases
         cursor.execute('DELETE FROM lease WHERE tenant_id = ?', (tenant_id,))
-    
-    # Delete the tenant
-    cursor.execute('DELETE FROM tenant WHERE id = ?', (tenant_id,))
-    
-    conn.commit()
-    conn.close()
-    
-    return jsonify({'message': 'Tenant and associated leases deleted successfully'})
+        
+        # Delete tenant - shop status will be updated by trigger
+        cursor.execute('DELETE FROM tenant WHERE id = ?', (tenant_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Tenant and associated leases deleted successfully'})
+    else:
+        # Check if tenant has related leases
+        cursor.execute('SELECT id FROM lease WHERE tenant_id = ? LIMIT 1', (tenant_id,))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'error': 'Cannot delete tenant with associated leases. Remove leases first or use cascade delete option.'}), 400
+        
+        # Delete tenant - shop status will be updated by trigger
+        cursor.execute('DELETE FROM tenant WHERE id = ?', (tenant_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Tenant deleted successfully'})
 
 @app.route('/api/leases', methods=['GET'])
 def get_leases():
@@ -806,25 +816,12 @@ def create_lease():
     if status == 'Active':
         cursor.execute('''
         SELECT id FROM lease 
-        WHERE shop_id = ? AND status = 'Active'
-        ''', (shop_id,))
+        WHERE shop_id = ? AND status = 'Active' AND id != ?
+        ''', (shop_id, data.get('id', 0)))
         
         if cursor.fetchone():
             conn.close()
             return jsonify({'error': 'Shop already has an active lease'}), 400
-    
-    # Convert date strings to proper format if needed
-    try:
-        start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
-        end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
-        
-        # Check if end date is after start date
-        if end_date_obj <= start_date_obj:
-            conn.close()
-            return jsonify({'error': 'End date must be after start date'}), 400
-    except ValueError:
-        conn.close()
-        return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
     
     # Insert new lease
     cursor.execute('''
@@ -834,10 +831,13 @@ def create_lease():
     
     lease_id = cursor.lastrowid
     
-    # If the lease is active, update tenant's shop assignment
-    if status == 'Active':
-        # Update tenant shop_id
-        cursor.execute('UPDATE tenant SET shop_id = ? WHERE id = ?', (shop_id, tenant_id))
+    # Update shop status to Occupied if the lease is active
+    if status == 'Active' and shop['status'] != 'Occupied':
+        cursor.execute('UPDATE shop SET status = ? WHERE id = ?', ('Occupied', shop_id))
+    
+    # Update tenant shop_id if it's not already set to this shop
+    cursor.execute('UPDATE tenant SET shop_id = ? WHERE id = ? AND (shop_id IS NULL OR shop_id != ?)', 
+                  (shop_id, tenant_id, shop_id))
     
     conn.commit()
     conn.close()
@@ -906,82 +906,107 @@ def update_lease(lease_id):
     if not rent_amount:
         return jsonify({'error': 'Rent amount is required'}), 400
     
+    # Ensure IDs are integers
+    try:
+        tenant_id = int(tenant_id)
+        shop_id = int(shop_id)
+        rent_amount = float(rent_amount)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid ID or rent amount format'}), 400
+    
     conn = get_db()
+    # Enable foreign key constraints
+    conn.execute("PRAGMA foreign_keys = ON")
     cursor = conn.cursor()
     
-    # Check if lease exists and get current information
-    cursor.execute('SELECT shop_id, tenant_id, status FROM lease WHERE id = ?', (lease_id,))
-    lease = cursor.fetchone()
-    if not lease:
-        conn.close()
-        return jsonify({'error': 'Lease not found'}), 404
-    
-    old_shop_id = lease['shop_id']
-    old_tenant_id = lease['tenant_id']
-    old_status = lease['status']
-    
-    # Check if tenant and shop exist
-    cursor.execute('SELECT id FROM tenant WHERE id = ?', (tenant_id,))
-    if not cursor.fetchone():
-        conn.close()
-        return jsonify({'error': 'Tenant not found'}), 404
-    
-    cursor.execute('SELECT id FROM shop WHERE id = ?', (shop_id,))
-    if not cursor.fetchone():
-        conn.close()
-        return jsonify({'error': 'Shop not found'}), 404
-    
-    # Check for conflicting leases (active leases for the same shop)
-    if status == 'Active' and shop_id != old_shop_id:
-        cursor.execute('''
-        SELECT id FROM lease 
-        WHERE shop_id = ? AND status = 'Active' AND id != ?
-        ''', (shop_id, lease_id))
+    try:
+        # Begin transaction
+        conn.isolation_level = None
+        cursor.execute('BEGIN TRANSACTION')
         
-        if cursor.fetchone():
+        # Check if lease exists and get current information
+        cursor.execute('SELECT shop_id, tenant_id, status FROM lease WHERE id = ?', (lease_id,))
+        lease = cursor.fetchone()
+        if not lease:
+            cursor.execute('ROLLBACK')
             conn.close()
-            return jsonify({'error': 'Shop already has an active lease'}), 400
-    
-    # Update lease
-    cursor.execute('''
-    UPDATE lease SET 
-        tenant_id = ?, 
-        shop_id = ?, 
-        start_date = ?, 
-        end_date = ?,
-        rent_amount = ?,
-        status = ?
-    WHERE id = ?
-    ''', (tenant_id, shop_id, start_date, end_date, rent_amount, status, lease_id))
-    
-    # If tenant has changed or status has changed to Active, update tenant shop assignment
-    if status == 'Active' and (tenant_id != old_tenant_id or old_status != 'Active'):
-        # Update tenant shop_id
-        update_tenant_shop(tenant_id, shop_id)
-    
-    # If lease was Active but is no longer active, check if tenant needs shop update
-    if old_status == 'Active' and status != 'Active':
-        # Check if tenant has other active leases
+            return jsonify({'error': 'Lease not found'}), 404
+        
+        old_shop_id = lease['shop_id']
+        old_tenant_id = lease['tenant_id']
+        old_status = lease['status']
+        
+        # Check if tenant and shop exist
+        cursor.execute('SELECT id FROM tenant WHERE id = ?', (tenant_id,))
+        if not cursor.fetchone():
+            cursor.execute('ROLLBACK')
+            conn.close()
+            return jsonify({'error': 'Tenant not found'}), 404
+        
+        cursor.execute('SELECT id FROM shop WHERE id = ?', (shop_id,))
+        if not cursor.fetchone():
+            cursor.execute('ROLLBACK')
+            conn.close()
+            return jsonify({'error': 'Shop not found'}), 404
+        
+        # Check for conflicting leases (active leases for the same shop)
+        if status == 'Active' and int(shop_id) != int(old_shop_id):
+            cursor.execute('''
+            SELECT id FROM lease 
+            WHERE shop_id = ? AND status = 'Active' AND id != ?
+            ''', (shop_id, lease_id))
+            
+            if cursor.fetchone():
+                cursor.execute('ROLLBACK')
+                conn.close()
+                return jsonify({'error': 'Shop already has an active lease'}), 400
+        
+        # Update lease
         cursor.execute('''
-        SELECT l.shop_id
-        FROM lease l
-        WHERE l.tenant_id = ? AND l.status = 'Active' AND l.id != ?
-        LIMIT 1
-        ''', (old_tenant_id, lease_id))
+        UPDATE lease SET 
+            tenant_id = ?, 
+            shop_id = ?, 
+            start_date = ?, 
+            end_date = ?,
+            rent_amount = ?,
+            status = ?
+        WHERE id = ?
+        ''', (tenant_id, shop_id, start_date, end_date, rent_amount, status, lease_id))
         
-        other_lease = cursor.fetchone()
+        # If tenant has changed or status has changed to Active, update tenant shop assignment
+        if status == 'Active' and (tenant_id != old_tenant_id or old_status != 'Active'):
+            # Update tenant shop_id within this transaction
+            cursor.execute('UPDATE tenant SET shop_id = ? WHERE id = ?', (shop_id, tenant_id))
         
-        if other_lease:
-            # Update tenant to use shop from other active lease
-            update_tenant_shop(old_tenant_id, other_lease['shop_id'])
-        else:
-            # No other active leases, set tenant shop to NULL
-            update_tenant_shop(old_tenant_id, None)
+        # If lease was Active but is no longer active, check if tenant needs shop update
+        if old_status == 'Active' and status != 'Active':
+            # Check if tenant has other active leases
+            cursor.execute('''
+            SELECT l.shop_id
+            FROM lease l
+            WHERE l.tenant_id = ? AND l.status = 'Active' AND l.id != ?
+            LIMIT 1
+            ''', (old_tenant_id, lease_id))
+            
+            other_lease = cursor.fetchone()
+            
+            if other_lease:
+                # Update tenant to use shop from other active lease
+                cursor.execute('UPDATE tenant SET shop_id = ? WHERE id = ?', 
+                              (other_lease['shop_id'], old_tenant_id))
+            else:
+                # No other active leases, set tenant shop to NULL
+                cursor.execute('UPDATE tenant SET shop_id = NULL WHERE id = ?', (old_tenant_id,))
+        
+        cursor.execute('COMMIT')
+        conn.close()
+        
+        return jsonify({'message': 'Lease updated successfully', 'id': lease_id})
     
-    conn.commit()
-    conn.close()
-    
-    return jsonify({'message': 'Lease updated successfully', 'id': lease_id})
+    except Exception as e:
+        cursor.execute('ROLLBACK')
+        conn.close()
+        return jsonify({'error': f'Database error: {str(e)}'}), 500
 
 @app.route('/api/leases/<int:lease_id>', methods=['DELETE'])
 def delete_lease(lease_id):
@@ -1044,10 +1069,10 @@ def get_maintenance_requests():
         'reported_date': req['reported_date'],
         'status': req['status'],
         'priority': req['priority'],
-        'resolved_date': req.get('resolved_date'),  # Use get() to handle nullable fields
-        'resolution_notes': req.get('resolution_notes'),
-        'tenant_name': req.get('tenant_name'),
-        'tenant_contact': req.get('tenant_contact')
+        'resolved_date': req['resolved_date'],
+        'resolution_notes': req['resolution_notes'],
+        'tenant_name': req['tenant_name'],
+        'tenant_contact': req['tenant_contact']
     } for req in maintenance])
 
 @app.route('/api/maintenance', methods=['POST'])
@@ -1063,8 +1088,6 @@ def create_maintenance_request():
     reported_date = data.get('reported_date', datetime.now().strftime('%Y-%m-%d'))
     status = data.get('status', 'Pending')
     priority = data.get('priority', 'Medium')
-    resolved_date = data.get('resolved_date')
-    resolution_notes = data.get('resolution_notes')
     
     # Validate required fields
     if not shop_id:
@@ -1081,15 +1104,11 @@ def create_maintenance_request():
         conn.close()
         return jsonify({'error': 'Shop not found'}), 404
     
-    # If status is completed but no resolved_date is provided, set it to now
-    if status == 'Completed' and not resolved_date:
-        resolved_date = datetime.now().strftime('%Y-%m-%d')
-    
     # Insert new maintenance request
     cursor.execute('''
-    INSERT INTO maintenance (shop_id, description, reported_date, status, priority, resolved_date, resolution_notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (shop_id, description, reported_date, status, priority, resolved_date, resolution_notes))
+    INSERT INTO maintenance (shop_id, description, reported_date, status, priority)
+    VALUES (?, ?, ?, ?, ?)
+    ''', (shop_id, description, reported_date, status, priority))
     
     maintenance_id = cursor.lastrowid
     
@@ -1128,8 +1147,8 @@ def get_maintenance_request(maintenance_id):
         'reported_date': request['reported_date'],
         'status': request['status'],
         'priority': request['priority'],
-        'resolved_date': request.get('resolved_date'),
-        'resolution_notes': request.get('resolution_notes')
+        'resolved_date': request['resolved_date'],
+        'resolution_notes': request['resolution_notes']
     })
 
 @app.route('/api/maintenance/<int:maintenance_id>', methods=['PUT'])
@@ -1258,6 +1277,300 @@ def check_expired_leases():
         return jsonify({'error': message}), 400
     
     return jsonify({'message': message})
+
+@app.route('/api/dashboard/tenant-stats', methods=['GET'])
+def tenant_lease_stats():
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Get total tenants
+    cursor.execute('SELECT COUNT(*) FROM tenant')
+    total_tenants = cursor.fetchone()[0]
+    
+    # Get tenants with active leases
+    cursor.execute('''
+    SELECT COUNT(DISTINCT t.id)
+    FROM tenant t
+    JOIN lease l ON t.id = l.tenant_id
+    WHERE l.status = 'Active'
+    ''')
+    tenants_with_leases = cursor.fetchone()[0]
+    
+    # Get tenants without leases
+    tenants_without_leases = total_tenants - tenants_with_leases
+    
+    conn.close()
+    
+    return jsonify({
+        'total_tenants': total_tenants,
+        'tenants_with_leases': tenants_with_leases,
+        'tenants_without_leases': tenants_without_leases,
+        'lease_coverage_percent': round((tenants_with_leases / total_tenants * 100) if total_tenants > 0 else 0, 1)
+    })
+
+@app.route('/api/tenant-with-lease', methods=['POST'])
+@app.route('/api/tenant-with-lease/<int:tenant_id>', methods=['POST'])
+def tenant_with_lease(tenant_id=None):
+    data = request.json
+    
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+        
+    tenant_data = data.get('tenant')
+    lease_data = data.get('lease')
+    
+    if not tenant_data:
+        return jsonify({'error': 'Tenant data is required'}), 400
+    
+    if not lease_data:
+        return jsonify({'error': 'Lease data is required'}), 400
+    
+    # Validate tenant data
+    tenant_name = tenant_data.get('name')
+    shop_id = tenant_data.get('shop_id')
+    
+    if not tenant_name:
+        return jsonify({'error': 'Tenant name is required'}), 400
+    
+    if not shop_id:
+        return jsonify({'error': 'Shop ID is required'}), 400
+    
+    # Validate lease data
+    start_date = lease_data.get('start_date')
+    end_date = lease_data.get('end_date')
+    rent_amount = lease_data.get('rent_amount')
+    
+    if not start_date:
+        return jsonify({'error': 'Lease start date is required'}), 400
+    
+    if not end_date:
+        return jsonify({'error': 'Lease end date is required'}), 400
+    
+    if not rent_amount:
+        return jsonify({'error': 'Lease rent amount is required'}), 400
+    
+    conn = get_db()
+    conn.isolation_level = None  # Enable autocommit mode
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('BEGIN TRANSACTION')
+        
+        # Verify shop exists
+        cursor.execute('SELECT id, status FROM shop WHERE id = ?', (shop_id,))
+        shop = cursor.fetchone()
+        if not shop:
+            raise ValueError('Shop not found')
+        
+        # Create or update tenant
+        if tenant_id:
+            # Update existing tenant
+            cursor.execute('''
+            UPDATE tenant 
+            SET name = ?, contact = ?, email = ?, business_type = ?, shop_id = ?
+            WHERE id = ?
+            ''', (
+                tenant_name,
+                tenant_data.get('contact'),
+                tenant_data.get('email'),
+                tenant_data.get('business_type'),
+                shop_id,
+                tenant_id
+            ))
+            
+            if cursor.rowcount == 0:
+                raise ValueError('Tenant not found')
+                
+            current_tenant_id = tenant_id
+        else:
+            # Create new tenant
+            cursor.execute('''
+            INSERT INTO tenant (name, contact, email, business_type, shop_id)
+            VALUES (?, ?, ?, ?, ?)
+            ''', (
+                tenant_name,
+                tenant_data.get('contact'),
+                tenant_data.get('email'),
+                tenant_data.get('business_type'),
+                shop_id
+            ))
+            
+            current_tenant_id = cursor.lastrowid
+        
+        # Check for existing active lease for this tenant
+        cursor.execute('''
+        SELECT id FROM lease 
+        WHERE tenant_id = ? AND status = 'Active'
+        ''', (current_tenant_id,))
+        
+        existing_lease = cursor.fetchone()
+        
+        if existing_lease:
+            # Update existing lease
+            cursor.execute('''
+            UPDATE lease
+            SET shop_id = ?, start_date = ?, end_date = ?, rent_amount = ?, status = ?
+            WHERE id = ?
+            ''', (
+                shop_id,
+                start_date,
+                end_date,
+                rent_amount,
+                lease_data.get('status', 'Active'),
+                existing_lease['id']
+            ))
+            
+            lease_id = existing_lease['id']
+        else:
+            # Check for active lease on this shop
+            cursor.execute('''
+            SELECT id FROM lease 
+            WHERE shop_id = ? AND status = 'Active'
+            ''', (shop_id,))
+            
+            shop_lease = cursor.fetchone()
+            if shop_lease:
+                raise ValueError('Shop already has an active lease')
+            
+            # Create new lease
+            cursor.execute('''
+            INSERT INTO lease (tenant_id, shop_id, start_date, end_date, rent_amount, status)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                current_tenant_id,
+                shop_id,
+                start_date,
+                end_date,
+                rent_amount,
+                lease_data.get('status', 'Active')
+            ))
+            
+            lease_id = cursor.lastrowid
+        
+        # Update shop status to Occupied if not already
+        if shop['status'] != 'Occupied':
+            cursor.execute('UPDATE shop SET status = ? WHERE id = ?', ('Occupied', shop_id))
+        
+        cursor.execute('COMMIT')
+        
+        return jsonify({
+            'message': 'Tenant and lease saved successfully',
+            'tenant_id': current_tenant_id,
+            'lease_id': lease_id
+        }), 200
+        
+    except ValueError as e:
+        cursor.execute('ROLLBACK')
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        cursor.execute('ROLLBACK')
+        return jsonify({'error': f'Database error: {str(e)}'}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/tenant-simple', methods=['POST'])
+def create_tenant_with_default_lease():
+    data = request.json
+    
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    # Extract tenant data from request
+    name = data.get('name')
+    contact = data.get('contact')
+    email = data.get('email')
+    business_type = data.get('business_type')
+    shop_id = data.get('shop_id')
+    
+    # Validate required fields
+    if not name:
+        return jsonify({'error': 'Tenant name is required'}), 400
+    
+    if not shop_id:
+        return jsonify({'error': 'Shop ID is required'}), 400
+    
+    # Ensure shop_id is an integer
+    try:
+        shop_id = int(shop_id)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Shop ID must be a valid number'}), 400
+    
+    conn = get_db()
+    conn.isolation_level = None  # Enable autocommit mode
+    
+    # Enable foreign key constraints for SQLite
+    conn.execute("PRAGMA foreign_keys = ON")
+    
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('BEGIN TRANSACTION')
+        
+        # Verify shop exists
+        cursor.execute('SELECT id, status, rent FROM shop WHERE id = ?', (shop_id,))
+        shop = cursor.fetchone()
+        if not shop:
+            raise ValueError(f'Shop not found with ID: {shop_id}')
+        
+        # Check for active lease on this shop
+        cursor.execute('SELECT id FROM lease WHERE shop_id = ? AND status = "Active"', (shop_id,))
+        if cursor.fetchone():
+            raise ValueError(f'Shop {shop_id} already has an active lease. Please select another shop.')
+        
+        # Create new tenant
+        cursor.execute('''
+        INSERT INTO tenant (name, contact, email, business_type, shop_id)
+        VALUES (?, ?, ?, ?, ?)
+        ''', (name, contact, email, business_type, shop_id))
+        
+        tenant_id = cursor.lastrowid
+        
+        # Create default lease (1 year from today)
+        start_date = datetime.now().strftime('%Y-%m-%d')
+        end_date = datetime(
+            datetime.now().year + 1, 
+            datetime.now().month,
+            datetime.now().day
+        ).strftime('%Y-%m-%d')
+        
+        # Use shop's rent as default rent amount
+        shop_rent = shop['rent']
+        if not shop_rent:
+            shop_rent = 0  # Default to 0 if rent is not set
+        
+        # Create new lease with default values
+        cursor.execute('''
+        INSERT INTO lease (tenant_id, shop_id, start_date, end_date, rent_amount, status)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ''', (tenant_id, shop_id, start_date, end_date, shop_rent, 'Active'))
+        
+        lease_id = cursor.lastrowid
+        
+        # Update shop status to Occupied
+        cursor.execute('UPDATE shop SET status = ? WHERE id = ?', ('Occupied', shop_id))
+        
+        cursor.execute('COMMIT')
+        
+        return jsonify({
+            'message': 'Tenant created with default lease successfully',
+            'id': tenant_id,
+            'tenant_id': tenant_id,
+            'lease_id': lease_id,
+            'lease_details': {
+                'start_date': start_date,
+                'end_date': end_date,
+                'rent_amount': shop_rent
+            }
+        }), 201
+        
+    except ValueError as e:
+        cursor.execute('ROLLBACK')
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        cursor.execute('ROLLBACK')
+        return jsonify({'error': f'Database error: {str(e)}'}), 500
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
     # Initialize database
